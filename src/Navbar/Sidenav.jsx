@@ -11,12 +11,13 @@ import { RiSendPlaneFill } from "react-icons/ri";
 import { Outlet } from 'react-router-dom';
 import QI from '../Sidebar/QI';
 import { useTranslation } from 'react-i18next';
+import SaveAsIcon from '@mui/icons-material/SaveAs';
 
 const Sidenav = ({ children }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [openPost, setOpenPost] = useState(false);
     const [AIopen, setAIopen] = useState(false)
-    const {t} = useTranslation('');
+    const { t } = useTranslation('');
 
     const handleMouseEnter = () => {
         setIsOpen(true);
@@ -27,6 +28,7 @@ const Sidenav = ({ children }) => {
     };
 
     useEffect(() => {
+        // console.log("Invoked");
         console.log("Invoked");
     }, [openPost]);
 
@@ -74,6 +76,11 @@ const Sidenav = ({ children }) => {
             name: t('accountOverview'),
             icon: <MdOutlineAccountCircle />,
             path: "/account-overview"
+        },
+        {
+            name: <div>{t('Draft')}</div>,
+            icon: <SaveAsIcon />,
+            path: "/drafts"
         }
     ];
 

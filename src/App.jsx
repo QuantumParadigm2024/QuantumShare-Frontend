@@ -29,6 +29,8 @@ import RegeneratePassword from './Navbar/RegeneratePassword';
 import RedditCallback from './SocialMediaLogin/RedditCallback';
 import PinterestCallback from './SocialMediaLogin/PinterestCallback';
 import AdminDashboard from './Admin/AdminDashboard';
+import Draft from './Sidebar/Draft';
+import ChatBotComponent from './Sidebar/ChatBotComponent';
 
 const App = () => {
     return (
@@ -60,12 +62,14 @@ const App = () => {
                     <Route path='/account-overview' element={<PrivateRoute><AccountOverview /></PrivateRoute>} />
                     <Route path='/analytics' element={<PrivateRoute><Analytics /></PrivateRoute>} />
                     <Route path='/connect-socialmedia' element={<PrivateRoute><ConnectSocialMedia /></PrivateRoute>} />
+                    <Route path='/drafts' element={<PrivateRoute><Draft /></PrivateRoute>} />
                     <Route path='/quantum-share/linkedin/callback/success' element={<PrivateRoute><LinkedInCallback /></PrivateRoute>} />
                     <Route path='/youtube/callback/getChannelDetails' element={<PrivateRoute><YoutubeCallback /></PrivateRoute>} />
                     <Route path='/quantum-share/callback/reddit' element={<PrivateRoute><RedditCallback /></PrivateRoute>} />
                     <Route path='/quantum-share/pinterest/callback/profileDetails' element={<PrivateRoute><PinterestCallback /></PrivateRoute>} />
                     <Route path="*" element={<Navigate to="/" />} />
                 </Routes>
+                <ChatBotComponent/>
             </BrowserRouter>
         </HelmetProvider>
     );

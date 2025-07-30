@@ -4,7 +4,7 @@
 /* eslint-disable no-mixed-operators */
 /* eslint-disable no-unused-vars */
 import React, { useEffect, useState, useContext, useRef } from "react";
-import { Grid, Tooltip, Popover, Zoom, Radio } from "@mui/material";
+import { Grid, Tooltip, Popover, Zoom, Radio, CircularProgress } from "@mui/material";
 import MoodOutlinedIcon from '@mui/icons-material/MoodOutlined';
 import FmdGoodOutlinedIcon from '@mui/icons-material/FmdGoodOutlined';
 import SendIcon from '@mui/icons-material/Send';
@@ -64,6 +64,7 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import CryptoJS from 'crypto-js';
 import { secretKey } from '../Helper/SecretKey';
 import { FetchUser } from "../Redux/FetchUser";
+import { CircleLoader } from "react-spinners";
 
 const Post = ({ onClose }) => {
     const { remainingDays, trail, subscription } = useSelector((state) => state.data);
@@ -765,11 +766,27 @@ const Post = ({ onClose }) => {
 
     const handleSubReddit = (e) => { setSr(e.target.value); handleChangesMade(); }
 
+    // const handleCaptionChange = (e) => {
+    //     const newCaption = e.target.value;
+    //     if (newCaption.length <= maxCaptionCharacters) { setCaption(newCaption); dispatch(updateCaption(e.target.value)); setChangesMade(true); }
+    // }
+    // const handleCaptionChange = (e) => {
+    //     const newCaption = e.target.value;
+    //     if (newCaption.length <= maxCaptionCharacters) {
+    //         setCaption(newCaption);
+    //         // dispatch(updateCaption(newCaption)); // Uncomment if using Redux
+    //         setChangesMade(true);
+    //     }
+    // };
+
     const handleCaptionChange = (e) => {
         const newCaption = e.target.value;
-        if (newCaption.length <= maxCaptionCharacters) { setCaption(newCaption); dispatch(updateCaption(e.target.value)); setChangesMade(true); }
-    }
-
+        if (newCaption.length <= maxCaptionCharacters) {
+            setCaption(newCaption);
+            // dispatch(updateCaption(newCaption)); // Uncomment if using Redux
+            setChangesMade(true);
+        }
+    };
     const addEmoji = (e) => {
         if (e.unified.startsWith('1F1E6')) {
             const codePoints = e.unified.split('-').map((code) => parseInt(code, 16));
@@ -893,10 +910,111 @@ const Post = ({ onClose }) => {
 
     const PinterestBoards = useSelector((state) => state.boards.PinterestBoards)
     const [boardName, setBoardName] = useState([]);
+    const [draftloading, setdraftloading] = useState(false)
 
     const handleBoardSelect = (event) => {
         setBoardName(event.target.value);
     };
+
+    const handleSaveDraft = async () => {
+        setdraftloading(true)
+        const endpoint = '/quantum-share/post/saveDraft'
+        const formData = createFormData(file, caption, title, visibility)
+        try {
+            const response = await axiosInstance.post(endpoint, formData, {
+                headers: {
+                    'Accept': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+            })
+            console.log(response);
+            setOpen(false)
+        }
+        catch (err) {
+            console.log(err);
+        }
+        finally {
+            setdraftloading(false)
+        }
+    }
+
+    const [listening, setListening] = useState(false);
+    const [selectedLanguage, setSelectedLanguage] = useState("en-US");
+    const recognitionRef = useRef(null);
+
+    const languages = [
+        { code: "en-US", name: "English (US)" },
+        { code: "es-ES", name: "Spanish (Spain)" },
+        { code: "hi-IN", name: "Hindi (India)" },
+        { code: "kn-IN", name: "Kannada (India)" },
+        { code: "fr-FR", name: "French (France)" },
+        { code: "zh-CN", name: "Chinese (Mandarin)" },
+        { code: "ja-JP", name: "Japanese" },
+        { code: "ar-SA", name: "Arabic (Saudi Arabia)" },
+    ];
+
+    useEffect(() => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Your browser does not support Speech Recognition.");
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false; // single listen per click
+        recognition.interimResults = false; // only final results
+
+        recognition.onresult = (event) => {
+            let transcript = "";
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                transcript += event.results[i][0].transcript;
+            }
+
+            const finalText = caption + transcript + " ";
+            if (finalText.length <= maxCaptionCharacters) {
+                setCaption(finalText);
+                setChangesMade(true);
+            }
+        };
+
+        recognition.onstart = () => {
+            setListening(true);
+        };
+
+        recognition.onend = () => {
+            setListening(false);
+        };
+
+        recognition.onerror = (event) => {
+            console.error("Speech recognition error:", event.error);
+            setListening(false);
+        };
+
+        recognitionRef.current = recognition;
+
+        return () => {
+            recognition.stop();
+        };
+    }, [caption, maxCaptionCharacters]);
+
+    const handleListen = () => {
+        if (!recognitionRef.current) return;
+        recognitionRef.current.lang = selectedLanguage;
+        if (listening) {
+            recognitionRef.current.stop();
+        } else {
+            recognitionRef.current.start();
+        }
+    };
+
+    const handleLanguageChange = (e) => {
+        setSelectedLanguage(e.target.value);
+        if (listening && recognitionRef.current) {
+            recognitionRef.current.stop();
+            setListening(false);
+        }
+    };
+
 
     return (
         <>
@@ -950,9 +1068,9 @@ const Post = ({ onClose }) => {
                 </DialogActions>
             </Dialog>
             <Dialog className="postContent" open={open} onClose={closeDialog} fullWidth maxWidth="lg">
-                <DialogContent>
-                    <Grid container spacing={1}>
-                        <Grid item lg={7} md={7} xs={12} >
+                <DialogContent >
+                    <Grid container spacing={1} >
+                        <Grid item lg={7} md={7} xs={12} sx={{ p: 2 }} >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <h4 id="newPost">New Post</h4>
                                 <Media onMediaPlatform={handleSelectIconAndSendToParent} initialMediaPlatform={mediaPlatform} postSubmitted={postSubmitted} />
@@ -977,10 +1095,62 @@ const Post = ({ onClose }) => {
                                             }} />
                                         </div>)}
                                 </div>
-                                <div>
-                                    <textarea className="area" rows={12} placeholder="Add your Caption/Description here..." value={caption} name="caption" onChange={handleCaptionChange}
-                                        style={{ width: '98%', border: '1px solid #ccc', borderRadius: '5px', resize: 'none', outline: 'none' }} id="textHere" />
-                                    <span style={{ position: 'relative', fontSize: '10px', color: caption.length === maxCaptionCharacters ? 'red' : '#666' }}>{caption.length}/{maxCaptionCharacters}</span>
+                                <div style={{ position: 'relative', width: '98%', margin: '20px auto' }}>
+                                    <label htmlFor="speech-language" style={{fontSize:12}}>
+                                        Select Speech Recognition Language:
+                                    </label>
+                                    <select
+                                        value={selectedLanguage}
+                                        onChange={handleLanguageChange}
+                                        style={{ marginBottom: '10px', padding: '5px', borderRadius: '5px' }}
+                                    >
+                                        {languages.map((lang) => (
+                                            <option key={lang.code} value={lang.code}>{lang.name}</option>
+                                        ))}
+                                    </select>
+
+                                    <textarea
+                                        className="area"
+                                        rows={12}
+                                        placeholder={listening ? "Listening..." : "Add your Caption/Description here..."}
+                                        value={caption}
+                                        name="caption"
+                                        onChange={handleCaptionChange}
+                                        style={{
+                                            width: '100%',
+                                            border: '1px solid #ccc',
+                                            borderRadius: '5px',
+                                            resize: 'none',
+                                            outline: 'none',
+                                            paddingRight: '40px'
+                                        }}
+                                        id="textHere"
+                                    />
+
+                                    <IconButton
+                                        onClick={handleListen}
+                                        style={{
+                                            position: 'absolute',
+                                            right: '10px',
+                                            bottom: '45px',
+                                            backgroundColor: listening ? 'red' : 'transparent',
+                                            color: listening ? 'white' : 'black'
+                                        }}
+                                    >
+                                        {listening ? <StopIcon /> : <MicIcon />}
+                                    </IconButton>
+
+                                    <span
+                                        style={{
+                                            position: 'absolute',
+                                            bottom: '10px',
+                                            left: '10px',
+                                            fontSize: '10px',
+                                            color: caption.length === maxCaptionCharacters ? 'red' : '#666'
+                                        }}
+                                    >
+                                        {caption.length}/{maxCaptionCharacters}
+                                    </span>
                                 </div>
                                 <div
                                     style={{
@@ -1405,7 +1575,6 @@ const Post = ({ onClose }) => {
                                                                 {instaShowMore ? " Show less" : " Show more"}
                                                             </Button>
                                                         )}
-
                                                     </Typography>
                                                     <Typography
                                                         variant="caption"
