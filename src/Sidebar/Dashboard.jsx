@@ -349,7 +349,10 @@ const Dashboard = () => {
                 <Link to='/reference-video'><FaCirclePlay className="circle-icon" /></Link>
                 <div className="hover-content">{t('referencevideo')}</div>
             </div>
+<<<<<<< HEAD
             
+=======
+>>>>>>> bab746e1110d03f929967e81e62c0e31889bf625
             <Dialog open={isSessionExpired} aria-labelledby="alert-dialog-title" PaperProps={{ sx: { backgroundColor: '#ffffff', width: '40vw', height: '30vh' } }}>
                 <DialogContent sx={{ backgroundColor: '#ffffff' }}>
                     <DialogContentText sx={{ color: 'black', display: 'flex', fontSize: '20px', alignItems: 'center' }}>

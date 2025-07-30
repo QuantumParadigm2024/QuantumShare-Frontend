@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable no-undef */
 /* eslint-disable no-unused-vars */
 import React, { useEffect, useState } from 'react';
@@ -14,12 +15,29 @@ import YoutubeIcon from '../Assets/youtubesmall.svg'
 import RedditIcon from '../Assets/redditsm1.svg';
 import PinterestIcon from '../Assets/pinterestsmall.png'
 import { useTranslation } from 'react-i18next';
+import CryptoJS from 'crypto-js';
+import { secretKey } from '../Helper/SecretKey';
+import axiosInstance from '../Helper/AxiosInstance';
 
 const Media = ({ onMediaPlatform, postSubmitted }) => {
     const [anchorEl, setAnchorEl] = useState(null);
     const [showPopover, setShowPopover] = useState(false);
     const [submittedIcons, setSubmittedIcons] = useState([]);
     const [mediaPlatform, setMediaPlatform] = useState([]);
+    const [selectAll, setSelectAll] = useState(false);
+
+    const decryptToken = (encryptedToken) => {
+        try {
+            const bytes = CryptoJS.AES.decrypt(encryptedToken, secretKey);
+            return bytes.toString(CryptoJS.enc.Utf8);
+        } catch (error) {
+            console.error('Error decrypting token:', error);
+            return null;
+        }
+    };
+
+    const encryptedToken = localStorage.getItem("qs");
+    const token = decryptToken(encryptedToken);
 
     const isLoggedIn = useSelector((state) => state.loginStatus.isLoggedIn);
     const instaLoggedIn = useSelector((state) => state.loginStatus.instaLoggedIn);
@@ -47,8 +65,6 @@ const Media = ({ onMediaPlatform, postSubmitted }) => {
 
     const { t } = useTranslation('');
 
-    const PinterestBoards = useSelector((state) => state.boards.PinterestBoards)
-
     const mediaPlatforms = [
         { id: 'facebook', icon: pageUrls, name: 'facebook', isLoggedIn, profileUrl: fbpagename },
         { id: 'instagram', icon: instagramUrl, name: 'instagram', isLoggedIn: instaLoggedIn, profileUrl: instaname },
@@ -74,10 +90,38 @@ const Media = ({ onMediaPlatform, postSubmitted }) => {
         onMediaPlatform(updatedPlatforms, platformString);
     }
 
-    const handlePopoverOpen = (event) => {
+    // const handlePopoverOpen = (event) => {
+    //     setAnchorEl(event.currentTarget);
+    //     setShowPopover(true);
+    // }
+
+    const handlePopoverOpen = async (event) => {
         setAnchorEl(event.currentTarget);
         setShowPopover(true);
-    }
+
+        try {
+            const response = await axiosInstance.get("/quantum-share/user/connected/socialmedia/platforms", {
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+
+            if (response.ok) {
+                const data = await response.json(); // expecting ['facebook', 'instagram', ...]
+                if (Array.isArray(data) && data.length > 0) {
+                    setSubmittedIcons(data);
+                    setMediaPlatform(data);
+                    const platformString = data.join(",");
+                    onMediaPlatform(data, platformString);
+                }
+            } else {
+                console.warn("Failed to fetch connected platforms. Using Redux state fallback.");
+            }
+        } catch (error) {
+            console.error("Error fetching connected platforms:", error);
+        }
+    };
 
     const handlePopoverClose = () => {
         if (showPopover) {
@@ -85,6 +129,32 @@ const Media = ({ onMediaPlatform, postSubmitted }) => {
             setMediaPlatform(submittedIcons);
         }
     };
+
+    const handleSelectAll = (checked) => {
+        setSelectAll(checked);
+        const loggedInPlatforms = mediaPlatforms
+            .filter((platform) => platform.isLoggedIn)
+            .map((platform) => platform.name);
+    
+        if (checked) {
+            setMediaPlatform(loggedInPlatforms);
+            onMediaPlatform(loggedInPlatforms, loggedInPlatforms.join(','));
+        } else {
+            setMediaPlatform([]);
+            onMediaPlatform([], '');
+        }
+    };
+
+    useEffect(() => {
+        const loggedInPlatforms = mediaPlatforms
+            .filter((platform) => platform.isLoggedIn)
+            .map((platform) => platform.name);
+    
+        const allSelected = loggedInPlatforms.length > 0 &&
+            loggedInPlatforms.every((name) => mediaPlatform.includes(name));
+    
+        setSelectAll(allSelected);
+    }, [mediaPlatform, mediaPlatforms]);
 
     const handleSubmit = () => {
         setSubmittedIcons(mediaPlatform);
@@ -185,59 +255,84 @@ const Media = ({ onMediaPlatform, postSubmitted }) => {
                     <Typography sx={{ p: 2, maxWidth: '350px' }}>
                         <Tooltip style={{ display: 'flex', flexWrap: 'wrap' }}>
                             <div
-                                className='box-container-soc'
-                                style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '230px', padding: '10px' }}
+                                className="box-container-soc"
+                                style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '10px',
+                                    width: '230px',
+                                    padding: '10px',
+                                }}
                             >
                                 {mediaPlatforms.some((platform) => platform.isLoggedIn) ? (
-                                    mediaPlatforms
-                                        .filter((platform) => platform.isLoggedIn)
-                                        .map((platform) => (
-                                            <div
-                                                key={platform.id}
-                                                style={{
-                                                    display: 'flex',
-                                                    flexDirection: 'row',
-                                                    alignItems: 'center',
-                                                    padding: '10px',
-                                                    backgroundColor: mediaPlatform.includes(platform.name) ? '#f0f0f0' : 'transparent',
-                                                    borderRadius: '10px',
-                                                    transition: 'background-color 0.3s ease',
-                                                    cursor: 'pointer',
-                                                }}
-                                                onClick={() =>
-                                                    handleSelectIconAndSendToParent(platform)
-                                                }
-                                            >
-                                                <Checkbox
-                                                    checked={mediaPlatform.includes(platform.name)}
-                                                    color="primary"
-                                                    style={{ padding: '0 10px 0 0' }}
-                                                />
-                                                <img
-                                                    src={platform.icon}
-                                                    alt={`${platform.name} icon`}
+                                    <>
+                                        {/* Select All Checkbox */}
+                                        <div
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                paddingBottom: '10px',
+                                                borderBottom: '1px solid #ccc',
+                                            }}
+                                        >
+                                            <Checkbox
+                                                checked={selectAll}
+                                                onChange={(e) => handleSelectAll(e.target.checked)}
+                                                color="primary"
+                                                style={{ padding: '0 10px 0 0' }}
+                                            />
+                                            <Typography variant="body2" style={{ fontSize: '14px', color: 'black' }}>
+                                                Select All
+                                            </Typography>
+                                        </div>
+
+                                        {/* Individual Platforms */}
+                                        {mediaPlatforms
+                                            .filter((platform) => platform.isLoggedIn)
+                                            .map((platform) => (
+                                                <div
+                                                    key={platform.id}
                                                     style={{
-                                                        marginRight: '10px',
-                                                        width: '35px',
-                                                        height: '35px',
-                                                        borderRadius: '50%',
+                                                        display: 'flex',
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        padding: '10px',
+                                                        backgroundColor: mediaPlatform.includes(platform.name)
+                                                            ? '#f0f0f0'
+                                                            : 'transparent',
+                                                        borderRadius: '10px',
+                                                        transition: 'background-color 0.3s ease',
+                                                        cursor: 'pointer',
                                                     }}
-                                                />
-                                                <div style={{ display: 'flex', flexDirection: 'column', }}>
-                                                    <span style={{ fontSize: '14px', color: 'black' }} >
-                                                        {platform.name}
-                                                    </span>
-                                                    <span style={{ fontSize: '10px', color: '#aaa' }} >
-                                                        {platform.profileUrl}
-                                                    </span>
+                                                    onClick={() => handleSelectIconAndSendToParent(platform)}
+                                                >
+                                                    <Checkbox
+                                                        checked={mediaPlatform.includes(platform.name)}
+                                                        color="primary"
+                                                        style={{ padding: '0 10px 0 0' }}
+                                                    />
+                                                    <img
+                                                        src={platform.icon}
+                                                        alt={`${platform.name} icon`}
+                                                        style={{
+                                                            marginRight: '10px',
+                                                            width: '35px',
+                                                            height: '35px',
+                                                            borderRadius: '50%',
+                                                        }}
+                                                    />
+                                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                        <span style={{ fontSize: '14px', color: 'black' }}>{platform.name}</span>
+                                                        <span style={{ fontSize: '10px', color: '#aaa' }}>{platform.profileUrl}</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))
+                                            ))}
+                                    </>
                                 ) : (
-                                    <div style={{ padding: '10px', textAlign: 'start', color: '#888' }} >
+                                    <div style={{ padding: '10px', textAlign: 'start', color: '#888' }}>
                                         {t('connectToSocialMedia')}
                                     </div>
-                                )}                           
+                                )}
                             </div>
                         </Tooltip>
                     </Typography>

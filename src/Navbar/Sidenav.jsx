@@ -29,6 +29,7 @@ const Sidenav = ({ children }) => {
 
     useEffect(() => {
         // console.log("Invoked");
+        console.log("Invoked");
     }, [openPost]);
 
     const handlePublish = () => {

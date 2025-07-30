@@ -32,16 +32,19 @@ import { TailSpin } from 'react-loader-spinner';
 import Backdrop from '@mui/material/Backdrop';
 import CircularProgress from '@mui/material/CircularProgress';
 import { useTranslation } from 'react-i18next';
-import { Dialog, DialogContent, DialogContentText, DialogActions, Button, IconButton, Typography } from '@mui/material';
+import { Dialog, DialogContent, DialogContentText, DialogActions, Button, IconButton, Typography, FormControl, Select, MenuItem } from '@mui/material';
 import WarningIcon from '@mui/icons-material/Warning';
 import PieChart from './PieCharts';
 import CryptoJS from 'crypto-js';
 import { secretKey } from '../Helper/SecretKey';
 import { useDispatch, useSelector } from 'react-redux';
 import { FetchUser } from '../Redux/FetchUser';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 const Analytics = () => {
     const { remainingDays, trail, subscription } = useSelector((state) => state.data);
+    const [selectedPlatform, setSelectedPlatform] = useState('facebook');
+    const [pageName, setPageName] = useState('');
     const dispatch = useDispatch();
     const [showPopup, setShowPopup] = useState(false);
     const [recentPosts, setRecentPosts] = useState([]);
@@ -51,7 +54,7 @@ const Analytics = () => {
     const [postsToDisplay, setPostsToDisplay] = useState([]);
     const [errorMessage, setErrorMessage] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [recentLoading, setRecentLoding] = useState(true);
+    const [recentLoading, setRecentLoading] = useState(true);
     const [isSessionExpired, setIsSessionExpired] = useState(false);
     const { t } = useTranslation('');
 
@@ -80,48 +83,114 @@ const Analytics = () => {
         }
     }, [trail, subscription, remainingDays]);
 
-    const fetchAnalyticsData = async () => {
+    const [facebookPages, setFacebookPages] = useState([]);
+    const [selectedPageId, setSelectedPageId] = useState('');
+
+    const fetchPosts = async (platform, pageId = '') => {
         try {
-            const response = await axiosInstance.get('/quantum-share/socialmedia/history', {
+            setRecentLoading(true);
+            setPageName('');
+            setErrorMessage('');
+
+            const response = await axiosInstance.get(`/quantum-share/view/analytics/${platform}`, {
                 headers: {
-                    'Accept': 'application/json',
+                    Accept: 'application/json',
                     Authorization: `Bearer ${token}`
                 }
             });
-            setRecentPosts(response.data.data);
+
+            let posts = [];
+
+            if (platform === "facebook") {
+                const pages = response.data.data || [];
+                setFacebookPages(pages);
+
+                const targetPage = pageId
+                    ? pages.find(p => p.pageId === parseInt(pageId))
+                    : pages[0];
+
+                if (targetPage) {
+                    posts = targetPage.posts.map(post => ({
+                        ...post,
+                        profileName: targetPage.pageName,
+                        pageId: targetPage.pageId,
+                        platformName: platform,
+                        fbUrl: post.permalink_url,
+                        description: post.message,
+                        type: post.type,
+                        imageUrl: post.full_picture,
+                        postDate: new Date(post.created_time).toLocaleDateString(),
+                        postTime: new Date(post.created_time).toLocaleTimeString(),
+                        mediaType: post.type,
+                    }));
+                    setPageName(targetPage.pageName);
+                    setSelectedPageId(targetPage.pageId);
+                } else {
+                    posts = [];
+                }
+            } else if (platform === "instagram") {
+                const page = response.data.data;
+                posts = page?.posts?.map(post => ({
+                    ...post,
+                    profileName: page.pageName,
+                    pageId: page.pageId,
+                    platformName: platform,
+                    fbUrl: post.permalink,
+                    description: post.caption,
+                    type: post.media_type,
+                    imageUrl: post.media_url,
+                    postDate: new Date(post.timestamp).toLocaleDateString(),
+                    postTime: new Date(post.timestamp).toLocaleTimeString(),
+                    mediaType: post.media_type,
+                })) || [];
+                setPageName(page?.pageName || '');
+            }
+
+            setRecentPosts(posts);
         } catch (error) {
-            console.error("Error fetching analytics data", error);
-            if (error.response?.data?.code === 121) {
-                console.log('1');
-                setIsSessionExpired(true);
-                localStorage.removeItem('qs');
+            console.error("Failed to fetch posts:", error);
+            if (error.response?.status === 404 && error.response.data?.message) {
+                setRecentPosts([]);
+                setPageName('');
+                setErrorMessage(error.response.data.message);
             }
         } finally {
-            setRecentLoding(false);
+            setRecentLoading(false);
         }
     };
 
     useEffect(() => {
-        fetchAnalyticsData();
-    }, [token]);
+        fetchPosts('facebook');
+        setSelectedPlatform('facebook');
+    }, []);
 
-    const handleViewInsights = async (pid) => {
+    const fetchPostInsights = async (post) => {
         setLoading(true);
         try {
-            const response = await axiosInstance.get(`/quantum-share/socialmedia/view/analytics?pid=${pid}`, {
+            const { id, type, pageId, platformName } = post;
+            const url = `/quantum-share/get/post/analytics/${platformName}?postId=${id}&type=${type}${platformName === "facebook" ? `&pageId=${pageId}` : ""}`;
+            const response = await axiosInstance.get(url, {
                 headers: {
                     'Accept': 'application/json',
-                    Authorization: `Bearer ${token}`
-                }
+                    Authorization: `Bearer ${token}`,
+                },
             });
-            console.log(response);
-            setSelectedPost(response.data);
-            setErrorMessage(null);
+
+            const enrichedPost = {
+                ...response.data,
+                platform: platformName,
+                data: {
+                    ...response.data.data,
+                    media_type: post.type || post.media_type,
+                    full_picture: post.full_picture || post.media_url,
+                    description: post.message || post.caption,
+                    fbUrl: post.permalink_url || post.permalink,
+                },
+            };
+            setSelectedPost(enrichedPost);
             setOpen(true);
         } catch (error) {
             if (error.response?.data?.code === 121) {
-                console.log('2');
-
                 setIsSessionExpired(true);
                 localStorage.removeItem('qs');
             } else if (error.response && error.response.data) {
@@ -140,7 +209,7 @@ const Analytics = () => {
     const handleViewInsightsClose = () => {
         setOpen(false);
         setSelectedPost(null);
-        fetchAnalyticsData();
+        // fetchPosts();
     };
 
     const getPlatformIcon = (platformName) => {
@@ -156,30 +225,6 @@ const Analytics = () => {
             default:
                 return null;
         }
-    };
-
-    const handleViewMore = async () => {
-        try {
-            const response = await axiosInstance.get(`/quantum-share/socialmedia/history/viewMore`, {
-                headers: {
-                    'Accept': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                }
-            });
-            setPostsToDisplay(response.data.data);
-            setViewMoreOpen(true);
-        } catch (error) {
-            console.error('Error fetching more posts:', error);
-            if (error.response?.data?.code === 121) {
-                console.log('3');
-                setIsSessionExpired(true);
-                localStorage.removeItem('qs');
-            }
-        }
-    };
-
-    const handleViewMoreClose = () => {
-        setViewMoreOpen(false);
     };
 
     const iconStyle = {
@@ -291,217 +336,244 @@ const Analytics = () => {
                                     <Grid container spacing={2}>
                                         <Grid item xs={12}>
                                             <div style={{ backgroundColor: 'white', padding: '20px', marginBottom: '20px', marginRight: '15px' }}>
-                                                <h2 style={{ color: '#ba343b', fontSize: '1.4rem' }}>{t('recentPosts')}</h2><br />
-                                                <Grid container spacing={2}>
-                                                    {recentPosts.filter(post => post.imageUrl).length > 0 ? (
-                                                        <>
-                                                            {recentPosts
-                                                                .filter(post => post.imageUrl)
-                                                                .map((post, index) => (
-                                                                    <Grid item xs={3} key={post.pid} sx={{ marginBottom: (index + 1) % 4 === 0 ? '1.5rem' : '0' }}>
-                                                                        <div
-                                                                            style={{
-                                                                                display: 'flex',
-                                                                                flexDirection: 'column',
-                                                                                alignItems: 'center',
-                                                                                border: '1px #ddd',
-                                                                                borderRadius: '8px',
-                                                                                padding: '6px',
-                                                                                width: '90%',
-                                                                                height: '295px',
-                                                                                textAlign: 'center',
-                                                                                backgroundColor: '#fefffa',
-                                                                                transition: 'transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out',
-                                                                                position: 'relative',
-                                                                                marginLeft: '10px',
-                                                                                marginRight: '10px'
-                                                                            }}
-                                                                            onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)'}
-                                                                            onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
-                                                                        >
-                                                                            {post.mediaType.startsWith('video') ? (
-                                                                                post.platformName === "facebook" || post.platformName === "youtube" ? (
-                                                                                    <div style={{ position: 'relative', width: '100%', height: '180px' }}>
-                                                                                        <img
-                                                                                            src={post.imageUrl}
-                                                                                            alt="Video Thumbnail"
-                                                                                            style={{
-                                                                                                width: '90%',
-                                                                                                height: '180px',
-                                                                                                objectFit: 'contain',
-                                                                                                borderRadius: '4px',
-                                                                                            }}
-                                                                                        />
-                                                                                        <div
-                                                                                            style={{
-                                                                                                border: '2px solid white',
-                                                                                                position: 'absolute',
-                                                                                                top: '50%',
-                                                                                                left: '50%',
-                                                                                                transform: 'translate(-50%, -50%)',
-                                                                                                width: '40px',
-                                                                                                height: '40px',
-                                                                                                borderRadius: '50%',
-                                                                                                backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                                                                                                display: 'flex',
-                                                                                                alignItems: 'center',
-                                                                                                justifyContent: 'center',
-                                                                                                zIndex: 1,
-                                                                                            }}
-                                                                                        >
-                                                                                            <button
-                                                                                                style={{
-                                                                                                    position: 'relative',
-                                                                                                    bottom: '1px',
-                                                                                                    left: '2px',
-                                                                                                    backgroundColor: 'transparent',
-                                                                                                    color: 'white',
-                                                                                                    border: 'none',
-                                                                                                    fontSize: '18px',
-                                                                                                    cursor: 'pointer',
-                                                                                                }}
-                                                                                            >
-                                                                                                ▶
-                                                                                            </button>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                ) : (
-                                                                                    <div style={{ position: 'relative', width: '100%', height: '180px' }}>
-                                                                                        <video
-                                                                                            src={post.imageUrl}
-                                                                                            alt="Video"
-                                                                                            style={{
-                                                                                                width: '90%',
-                                                                                                height: '180px',
-                                                                                                objectFit: 'contain',
-                                                                                                borderRadius: '4px',
-                                                                                            }}
-                                                                                        />
-                                                                                        <div
-                                                                                            style={{
-                                                                                                border: '2px solid white',
-                                                                                                position: 'absolute',
-                                                                                                top: '50%',
-                                                                                                left: '50%',
-                                                                                                transform: 'translate(-50%, -50%)',
-                                                                                                width: '40px',
-                                                                                                height: '40px',
-                                                                                                borderRadius: '50%',
-                                                                                                backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                                                                                                display: 'flex',
-                                                                                                alignItems: 'center',
-                                                                                                justifyContent: 'center',
-                                                                                                zIndex: 1,
-                                                                                            }}
-                                                                                        >
-                                                                                            <button
-                                                                                                style={{
-                                                                                                    position: 'relative',
-                                                                                                    bottom: '1px',
-                                                                                                    left: '2px',
-                                                                                                    backgroundColor: 'transparent',
-                                                                                                    color: 'white',
-                                                                                                    border: 'none',
-                                                                                                    fontSize: '18px',
-                                                                                                    cursor: 'pointer',
-                                                                                                }}
-                                                                                            >
-                                                                                                ▶
-                                                                                            </button>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                )
-                                                                            ) : (
-                                                                                <img
-                                                                                    src={post.imageUrl}
-                                                                                    alt="Image"
-                                                                                    style={{
-                                                                                        width: '90%',
-                                                                                        height: '180px',
-                                                                                        objectFit: 'contain',
-                                                                                        borderRadius: '4px',
-                                                                                    }}
-                                                                                />
-                                                                            )}
-                                                                            <div
-                                                                                style={{
-                                                                                    position: 'absolute',
-                                                                                    top: '-4px',
-                                                                                    right: '-4px',
-                                                                                    display: 'flex',
-                                                                                    alignItems: 'center',
-                                                                                    justifyContent: 'center',
-                                                                                    width: '27px',
-                                                                                    height: '27px',
-                                                                                }}
-                                                                            >
-                                                                                {getPlatformIcon(post.platformName)}
-                                                                            </div>
-                                                                            <div>
-                                                                                <p style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#333', marginTop: '10px' }}>
-                                                                                    {post.profileName}
-                                                                                </p>
-                                                                                <p style={{ fontSize: '0.75rem', color: '#666', marginTop: '4px' }}>
-                                                                                    {post.postDate}, {post.postTime}
-                                                                                </p>
-                                                                            </div>
-                                                                            <button
-                                                                                onClick={() => handleViewInsights(post.pid)}
-                                                                                style={{
-                                                                                    backgroundColor: '#fff',
-                                                                                    color: '#ba343b',
-                                                                                    border: '1px solid #ba343b',
-                                                                                    borderRadius: '4px',
-                                                                                    width: '7rem',
-                                                                                    height: '2.1rem',
-                                                                                    cursor: 'pointer',
-                                                                                    fontSize: '14px',
-                                                                                    fontWeight: '600',
-                                                                                    position: 'absolute',
-                                                                                    bottom: '15px',
-                                                                                    left: '50%',
-                                                                                    transform: 'translateX(-50%)',
-                                                                                    marginRight: '20px'
-                                                                                }}
-                                                                            >
-                                                                                {t('viewInsights')}
-                                                                            </button>
-                                                                        </div>
-                                                                    </Grid>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <h2 style={{ color: '#ba343b', fontSize: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                        {selectedPlatform === 'facebook' && facebookPages.length > 1 ? (
+                                                            <FormControl size="small">
+                                                                <Select
+                                                                    value={selectedPageId}
+                                                                    onChange={(e) => fetchPosts("facebook", e.target.value)}
+                                                                    displayEmpty
+                                                                    sx={{ minWidth: 200, fontSize: '1rem', borderRadius: '8px', color: '#ba343b', }}
+                                                                >
+                                                                    {facebookPages.map(page => (
+                                                                        <MenuItem key={page.pageId} value={page.pageId}>
+                                                                            {page.pageName}
+                                                                        </MenuItem>
+                                                                    ))}
+                                                                </Select>
+                                                            </FormControl>
+                                                        ) : (
+                                                            <>{pageName || "Post Analytics"}</>
+                                                        )}
+                                                    </h2>
 
-                                                                ))}
-                                                            {recentPosts.filter(post => post.imageUrl).length >= 10 && (
-                                                                <Grid item xs={3}>
+                                                    <FormControl size="small" sx={{ minWidth: 140 }}>
+                                                        <Select
+                                                            value={selectedPlatform}
+                                                            onChange={(e) => {
+                                                                const platform = e.target.value;
+                                                                setSelectedPlatform(platform);
+                                                                fetchPosts(platform);
+                                                            }}
+                                                            displayEmpty
+                                                            inputProps={{ 'aria-label': 'Select Platform' }}
+                                                            sx={{
+                                                                backgroundColor: '#fff',
+                                                                border: '1px solid #ba343b',
+                                                                borderRadius: '8px',
+                                                                minWidth: 150,
+                                                                color: '#ba343b',
+                                                                fontWeight: '600',
+                                                                fontSize: '1rem'
+                                                            }}
+                                                        >
+                                                            <MenuItem value="facebook">Facebook</MenuItem>
+                                                            <MenuItem value="instagram">Instagram</MenuItem>
+                                                        </Select>
+                                                    </FormControl>
+                                                </div>
+
+                                                {recentPosts.length === 0 && (
+                                                    <div style={{ margin: '10px 16px' }}>
+                                                        <p style={{ fontWeight: 500 }}>
+                                                            {errorMessage === 'Facebook accounts have not connected'
+                                                                ? 'Connect your Facebook account to see your post analytics.'
+                                                                : errorMessage === 'Instagram accounts have not connected'
+                                                                    ? 'Connect your Instagram account to see your post analytics.'
+                                                                    : t('noRecentPosts')}
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                {recentPosts.filter(post => post.imageUrl).length > 0 && (
+                                                    <Grid container spacing={2}>
+                                                        {recentPosts
+                                                            .filter(post => post.imageUrl)
+                                                            .map((post, index) => (
+                                                                <Grid item xs={3} key={post.pid} sx={{ marginTop: '30px', marginBottom: (index + 1) % 4 === 0 ? '1.5rem' : '0' }}>
                                                                     <div
                                                                         style={{
                                                                             display: 'flex',
-                                                                            justifyContent: 'center',
+                                                                            flexDirection: 'column',
                                                                             alignItems: 'center',
-                                                                            border: '1px dashed #ba343b',
+                                                                            border: '1px #ddd',
                                                                             borderRadius: '8px',
                                                                             padding: '6px',
-                                                                            width: '900',
+                                                                            width: '90%',
                                                                             height: '295px',
                                                                             textAlign: 'center',
-                                                                            backgroundColor: 'transparent',
-                                                                            cursor: 'pointer',
-                                                                            transition: 'background-color 0.3s ease-in-out',
+                                                                            backgroundColor: '#fefffa',
+                                                                            transition: 'transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out',
+                                                                            position: 'relative',
+                                                                            marginLeft: '10px',
+                                                                            marginRight: '10px'
                                                                         }}
-                                                                        onClick={handleViewMore}
+                                                                        onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)'}
+                                                                        onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
                                                                     >
-                                                                        <span style={{ color: '#ba343b', fontSize: '1.2rem', fontWeight: 'bold' }}>
-                                                                            View More
-                                                                        </span>
+                                                                        {post.mediaType?.startsWith('VIDEO') ? (
+                                                                            post.platformName === "facebook" || post.platformName === "youtube" ? (
+                                                                                <div style={{ position: 'relative', width: '100%', height: '180px' }}>
+                                                                                    <img
+                                                                                        src={post.imageUrl}
+                                                                                        alt="Video Thumbnail"
+                                                                                        style={{
+                                                                                            width: '90%',
+                                                                                            height: '180px',
+                                                                                            objectFit: 'contain',
+                                                                                            borderRadius: '4px',
+                                                                                        }}
+                                                                                    />
+                                                                                    <div
+                                                                                        style={{
+                                                                                            border: '2px solid white',
+                                                                                            position: 'absolute',
+                                                                                            top: '50%',
+                                                                                            left: '50%',
+                                                                                            transform: 'translate(-50%, -50%)',
+                                                                                            width: '40px',
+                                                                                            height: '40px',
+                                                                                            borderRadius: '50%',
+                                                                                            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                                                                                            display: 'flex',
+                                                                                            alignItems: 'center',
+                                                                                            justifyContent: 'center',
+                                                                                            zIndex: 1,
+                                                                                        }}
+                                                                                    >
+                                                                                        <button
+                                                                                            style={{
+                                                                                                position: 'relative',
+                                                                                                bottom: '1px',
+                                                                                                left: '2px',
+                                                                                                backgroundColor: 'transparent',
+                                                                                                color: 'white',
+                                                                                                border: 'none',
+                                                                                                fontSize: '18px',
+                                                                                                cursor: 'pointer',
+                                                                                            }}
+                                                                                        >
+                                                                                            ▶
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div style={{ position: 'relative', width: '100%', height: '180px' }}>
+                                                                                    <video
+                                                                                        src={post.imageUrl}
+                                                                                        alt="Video"
+                                                                                        style={{
+                                                                                            width: '90%',
+                                                                                            height: '180px',
+                                                                                            objectFit: 'contain',
+                                                                                            borderRadius: '4px',
+                                                                                        }}
+                                                                                    />
+                                                                                    <div
+                                                                                        style={{
+                                                                                            border: '2px solid white',
+                                                                                            position: 'absolute',
+                                                                                            top: '50%',
+                                                                                            left: '50%',
+                                                                                            transform: 'translate(-50%, -50%)',
+                                                                                            width: '40px',
+                                                                                            height: '40px',
+                                                                                            borderRadius: '50%',
+                                                                                            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                                                                                            display: 'flex',
+                                                                                            alignItems: 'center',
+                                                                                            justifyContent: 'center',
+                                                                                            zIndex: 1,
+                                                                                        }}
+                                                                                    >
+                                                                                        <button
+                                                                                            style={{
+                                                                                                position: 'relative',
+                                                                                                bottom: '1px',
+                                                                                                left: '2px',
+                                                                                                backgroundColor: 'transparent',
+                                                                                                color: 'white',
+                                                                                                border: 'none',
+                                                                                                fontSize: '18px',
+                                                                                                cursor: 'pointer',
+                                                                                            }}
+                                                                                        >
+                                                                                            ▶
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            )
+                                                                        ) : (
+                                                                            <img
+                                                                                src={post.imageUrl}
+                                                                                alt="Image"
+                                                                                style={{
+                                                                                    width: '90%',
+                                                                                    height: '180px',
+                                                                                    objectFit: 'contain',
+                                                                                    borderRadius: '4px',
+                                                                                }}
+                                                                            />
+                                                                        )}
+                                                                        <div
+                                                                            style={{
+                                                                                position: 'absolute',
+                                                                                top: '-4px',
+                                                                                right: '-4px',
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                justifyContent: 'center',
+                                                                                width: '27px',
+                                                                                height: '27px',
+                                                                            }}
+                                                                        >
+                                                                            {getPlatformIcon(post.platformName)}
+                                                                        </div>
+                                                                        <div>
+                                                                            <p style={{ fontSize: '0.75rem', color: '#333', marginTop: '10px' }}>
+                                                                                {post.description ? (post.description.length > 15 ? post.description.substring(0, 15) + '...' : post.description) : '-'}
+                                                                            </p>
+                                                                            <p style={{ fontSize: '0.75rem', color: '#666', marginTop: '4px' }}>
+                                                                                {post.postDate}, {post.postTime}
+                                                                            </p>
+                                                                        </div>
+                                                                        <button
+                                                                            onClick={() => fetchPostInsights(post)}
+                                                                            style={{
+                                                                                backgroundColor: '#fff',
+                                                                                color: '#ba343b',
+                                                                                border: '1px solid #ba343b',
+                                                                                borderRadius: '4px',
+                                                                                width: '7rem',
+                                                                                height: '2.1rem',
+                                                                                cursor: 'pointer',
+                                                                                fontSize: '14px',
+                                                                                fontWeight: '600',
+                                                                                position: 'absolute',
+                                                                                bottom: '15px',
+                                                                                left: '50%',
+                                                                                transform: 'translateX(-50%)',
+                                                                                marginRight: '20px'
+                                                                            }}
+                                                                        >
+                                                                            {t('viewInsights')}
+                                                                        </button>
                                                                     </div>
                                                                 </Grid>
-                                                            )}
-                                                        </>
-                                                    ) : (
-                                                        <div style={{ margin: '0 16px' }}>
-                                                            <p>{t('noRecentPosts')}</p>
-                                                        </div>
-                                                    )}
-                                                </Grid>
+                                                            ))}
+                                                    </Grid>
+                                                )}
                                             </div>
                                         </Grid>
                                     </Grid>
@@ -520,7 +592,8 @@ const Analytics = () => {
                                                         justifyContent: 'space-between',
                                                         alignItems: 'flex-start',
                                                         flexWrap: 'wrap',
-                                                        gap: '10px'
+                                                        gap: '10px',
+                                                        marginTop: '25px',
                                                     }}
                                                 >
                                                     <div
@@ -637,7 +710,8 @@ const Analytics = () => {
                                                         justifyContent: 'space-between',
                                                         alignItems: 'flex-start',
                                                         flexWrap: 'wrap',
-                                                        gap: '10px'
+                                                        gap: '10px',
+                                                        marginTop: '25px',
                                                     }}
                                                 >
                                                     <div
@@ -721,193 +795,10 @@ const Analytics = () => {
                         )}
                     </div>
                 </div>
-                <Dialog open={viewMoreOpen} onClose={handleViewMoreClose} maxWidth="lg" fullWidth>
-                    <DialogTitle sx={{ color: '#ba343b', fontSize: '1.2rem', fontWeight: '600', textAlign: 'center' }}>
-                        {t('allPosts')}
-                    </DialogTitle>
-                    <DialogContent dividers>
-                        <Grid container spacing={2}>
-                            {postsToDisplay.map((post, index) => (
-                                <Grid item xs={3} key={post.pid} sx={{ marginBottom: (index + 1) % 4 === 0 ? '1rem' : '0' }}>
-                                    <div
-                                        style={{
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            alignItems: 'center',
-                                            border: '1px #ddd',
-                                            borderRadius: '8px',
-                                            padding: '6px',
-                                            width: '90%',
-                                            height: '295px',
-                                            textAlign: 'center',
-                                            backgroundColor: '#fefffa',
-                                            transition: 'transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out',
-                                            position: 'relative',
-                                        }}
-                                        onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)'}
-                                        onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
-                                    >
-                                        {post.mediaType.startsWith('video') ? (
-                                            post.platformName === "facebook" || post.platformName === "youtube" ? (
-                                                <div style={{ position: 'relative', width: '100%', height: '180px' }}>
-                                                    <img
-                                                        src={post.imageUrl}
-                                                        alt="Video Thumbnail"
-                                                        style={{
-                                                            width: '90%',
-                                                            height: '180px',
-                                                            objectFit: 'contain',
-                                                            borderRadius: '4px',
-                                                        }}
-                                                    />
-                                                    <div
-                                                        style={{
-                                                            border: '2px solid white',
-                                                            position: 'absolute',
-                                                            top: '50%',
-                                                            left: '50%',
-                                                            transform: 'translate(-50%, -50%)',
-                                                            width: '40px',
-                                                            height: '40px',
-                                                            borderRadius: '50%',
-                                                            backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            zIndex: 1,
-                                                        }}
-                                                    >
-                                                        <button
-                                                            style={{
-                                                                position: 'relative',
-                                                                bottom: '1px',
-                                                                left: '2px',
-                                                                backgroundColor: 'transparent',
-                                                                color: 'white',
-                                                                border: 'none',
-                                                                fontSize: '18px',
-                                                                cursor: 'pointer',
-                                                            }}
-                                                        >
-                                                            ▶
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <div style={{ position: 'relative', width: '100%', height: '180px' }}>
-                                                    <video
-                                                        src={post.imageUrl}
-                                                        alt="Video"
-                                                        style={{
-                                                            width: '90%',
-                                                            height: '180px',
-                                                            objectFit: 'contain',
-                                                            borderRadius: '4px',
-                                                        }}
-                                                    />
-                                                    <div
-                                                        style={{
-                                                            border: '2px solid white',
-                                                            position: 'absolute',
-                                                            top: '50%',
-                                                            left: '50%',
-                                                            transform: 'translate(-50%, -50%)',
-                                                            width: '40px',
-                                                            height: '40px',
-                                                            borderRadius: '50%',
-                                                            backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            zIndex: 1,
-                                                        }}
-                                                    >
-                                                        <button
-                                                            style={{
-                                                                position: 'relative',
-                                                                bottom: '1px',
-                                                                left: '2px',
-                                                                backgroundColor: 'transparent',
-                                                                color: 'white',
-                                                                border: 'none',
-                                                                fontSize: '18px',
-                                                                cursor: 'pointer',
-                                                            }}
-                                                        >
-                                                            ▶
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )
-                                        ) : (
-                                            <img
-                                                src={post.imageUrl}
-                                                alt="Image"
-                                                style={{
-                                                    width: '90%',
-                                                    height: '180px',
-                                                    objectFit: 'contain',
-                                                    borderRadius: '4px',
-                                                }}
-                                            />
-                                        )}
-                                        <div
-                                            style={{
-                                                position: 'absolute',
-                                                top: '-4px',
-                                                right: '-4px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                width: '27px',
-                                                height: '27px',
-                                            }}
-                                        >
-                                            {getPlatformIcon(post.platformName)}
-                                        </div>
-                                        <div>
-                                            <p style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#333', marginTop: '10px' }}>
-                                                {post.profileName}
-                                            </p>
-                                            <p style={{ fontSize: '0.75rem', color: '#666', marginTop: '4px' }}>
-                                                {post.postDate}, {post.postTime}
-                                            </p>
-                                        </div>
-                                        <button
-                                            onClick={() => handleViewInsights(post.pid)}
-                                            style={{
-                                                backgroundColor: '#fff',
-                                                color: '#ba343b',
-                                                border: '1px solid #ba343b',
-                                                borderRadius: '4px',
-                                                width: '7rem',
-                                                height: '2.1rem',
-                                                cursor: 'pointer',
-                                                fontSize: '14px',
-                                                fontWeight: '600',
-                                                position: 'absolute',
-                                                bottom: '15px',
-                                                left: '50%',
-                                                transform: 'translateX(-50%)',
-                                            }}
-                                        >
-                                            {t('viewInsights')}
-                                        </button>
-                                    </div>
-                                </Grid>
-                            ))}
-                        </Grid>
-                    </DialogContent>
-                    <DialogActions>
-                        <Button onClick={handleViewMoreClose} style={{ color: '#ba343b' }}>
-                            {t('close')}
-                        </Button>
-                    </DialogActions>
-                </Dialog>
                 <Backdrop open={loading} sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
                     <CircularProgress sx={{ color: '#ba343b' }} size={40} />
                 </Backdrop>
-                <Dialog open={open} onClose={handleViewInsightsClose} maxWidth="md" fullWidth>
+                <Dialog open={open} onClose={handleViewInsightsClose} maxWidth="lg" fullWidth>
                     <DialogTitle sx={{ color: '#ba343b', fontSize: '1.2rem', fontWeight: '600', position: 'relative', paddingRight: '70px' }}>
                         {t('postInsights')}
                         {selectedPost && selectedPost.platform && (
@@ -940,13 +831,13 @@ const Analytics = () => {
                             selectedPost && (
                                 <Grid container spacing={2}>
                                     <Grid item xs={4}>
-                                        {selectedPost.platform === 'facebook' && selectedPost.data.media_type.startsWith('video') ? (
+                                        {selectedPost.platform === 'facebook' && selectedPost.data.media_type?.startsWith('video') ? (
                                             <img
                                                 src={selectedPost.data.full_picture}
                                                 alt="Facebook Post Thumbnail"
                                                 style={{ width: '100%', height: '250px', borderRadius: '4px', objectFit: 'contain' }}
                                             />
-                                        ) : selectedPost.data.media_type.startsWith('video') ? (
+                                        ) : (selectedPost.data.media_type?.startsWith('video') || selectedPost.data.media_type?.startsWith('VIDEO')) ? (
                                             selectedPost.data.full_picture.includes('youtube.com') || selectedPost.data.full_picture.includes('youtu.be') ? (
                                                 <iframe
                                                     width="100%"
@@ -971,149 +862,130 @@ const Analytics = () => {
                                             />
                                         )}
                                         <br /><br />
-                                        <p>{selectedPost.data.description}</p>
+                                        <p style={{ fontWeight: 500, fontSize: '14px', color: '#333', margin: 0 }}>
+                                            {selectedPost.data.description}
+                                        </p>
                                     </Grid>
                                     <Grid item xs={4}>
-                                        {/* Facebook */}
-                                        {selectedPost.data.total_comments !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <CommentOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Comments : {selectedPost.data.total_comments}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.love !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <FavoriteBorderOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Love : {selectedPost.data.love}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.like !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <ThumbUpAltOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Likes : {selectedPost.data.like}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.total_video_views !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <VisibilityOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Views : {selectedPost.data.total_video_views}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.total_video_impressions !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <InsightsOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Impressions : {selectedPost.data.total_video_impressions}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.reactions !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <SentimentVerySatisfiedOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Reactions : {selectedPost.data.reactions}</span>
-                                            </p>
-                                        )}
-                                        {/* Instagram */}
-                                        {selectedPost.data.comments !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <CommentOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Comments : {selectedPost.data.comments}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.likes !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <FavoriteBorderOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Likes : {selectedPost.data.likes}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.shares !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <Share sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Shares : {selectedPost.data.shares}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.saved !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <BookmarksOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Saved : {selectedPost.data.saved}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.reach !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <TrendingUpOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Reach : {selectedPost.data.reach}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.media_type === 'video' && selectedPost.data.ig_reels_video_view_total_time !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <VisibilityOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Views : {selectedPost.data.ig_reels_video_view_total_time}</span>
-                                            </p>
-                                        )}
-                                        {/* Youtube */}
-                                        {selectedPost.data.media_type === 'video/mp4' && selectedPost.data.commentCount !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <CommentOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Comments : {selectedPost.data.commentCount}</span>
-                                            </p>
-                                        )}
-                                        {/* {selectedPost.data.media_type === 'video/mp4' && selectedPost.data.viewCount !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <VisibilityOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Views : {selectedPost.data.viewCount}</span>
-                                            </p>
-                                        )} */}
-                                        {/* {selectedPost.data.media_type === 'video/mp4' && selectedPost.data.likeCount !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <FavoriteBorderOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Likes : {selectedPost.data.likeCount}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.media_type === 'video/mp4' && selectedPost.data.favoriteCount !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <StarBorderPurple500OutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Favourite : {selectedPost.data.favoriteCount}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.media_type === 'video/mp4' && selectedPost.data.dislikeCount !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <ThumbDownOffAltOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Dislikes : {selectedPost.data.dislikeCount}</span>
-                                            </p>
-                                        )} */}
-                                        {/* LinkedIn */}
-                                        {selectedPost.data.comments !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <CommentOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Comments : {selectedPost.data.comments}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.LIKE !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <FavoriteBorderOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Likes : {selectedPost.data.LIKE}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.PRAISE !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <TrendingUpOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Praise : {selectedPost.data.PRAISE}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.EMPATHY !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <TrendingUpOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Empathy : {selectedPost.data.EMPATHY}</span>
-                                            </p>
-                                        )}
-                                        {selectedPost.data.media_type === 'video' && selectedPost.data.views !== undefined && (
-                                            <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                                                <VisibilityOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
-                                                <span style={{ fontWeight: '600' }}>Views : {selectedPost.data.views}</span>
-                                            </p>
-                                        )}
+                                        <div style={{
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            justifyContent: 'center',
+                                            marginLeft: '35px',
+                                            marginTop: '25px',
+                                            maxHeight: '300px',
+                                            overflowY: 'auto',
+                                            paddingRight: '10px',
+                                        }}>
+                                            {/* Facebook */}
+                                            {selectedPost.data.commentCount !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <CommentOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Comments : {selectedPost.data.commentCount}</span>
+                                                </p>
+                                            )}
+                                            {selectedPost.data.love !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <FavoriteBorderOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Love : {selectedPost.data.love}</span>
+                                                </p>
+                                            )}
+                                            {selectedPost.data.like !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <ThumbUpAltOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Likes : {selectedPost.data.like}</span>
+                                                </p>
+                                            )}
+                                            {selectedPost.data.total_video_views !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <VisibilityOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Views : {selectedPost.data.total_video_views}</span>
+                                                </p>
+                                            )}
+                                            {selectedPost.data.total_video_impressions !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <InsightsOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Impressions : {selectedPost.data.total_video_impressions}</span>
+                                                </p>
+                                            )}
+                                            {selectedPost.data.reactions !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <SentimentVerySatisfiedOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Reactions : {selectedPost.data.reactions}</span>
+                                                </p>
+                                            )}
+                                            {/* Instagram */}
+                                            {selectedPost.data.comments !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <CommentOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Comments : {selectedPost.data.comments}</span>
+                                                </p>
+                                            )}
+                                            {selectedPost.data.likes !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <FavoriteBorderOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Likes : {selectedPost.data.likes}</span>
+                                                </p>
+                                            )}
+                                            {selectedPost.data.shares !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <Share sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Shares : {selectedPost.data.shares}</span>
+                                                </p>
+                                            )}
+                                            {selectedPost.data.saved !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <BookmarksOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Saved : {selectedPost.data.saved}</span>
+                                                </p>
+                                            )}
+                                            {selectedPost.data.reach !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <TrendingUpOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Reach : {selectedPost.data.reach}</span>
+                                                </p>
+                                            )}
+                                            {selectedPost.data.media_type === 'video' && selectedPost.data.ig_reels_video_view_total_time !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <VisibilityOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Views : {selectedPost.data.ig_reels_video_view_total_time}</span>
+                                                </p>
+                                            )}
+                                            {/* Youtube */}
+                                            {selectedPost.data.media_type === 'video/mp4' && selectedPost.data.commentCount !== undefined && (
+                                                <p style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                                                    <CommentOutlinedIcon sx={{ color: 'grey', fontSize: '20px', marginRight: '8px' }} />
+                                                    <span style={{ fontWeight: '600' }}>Comments : {selectedPost.data.commentCount}</span>
+                                                </p>
+                                            )}
+
+                                        </div>
                                     </Grid>
                                     <Grid item xs={4}>
                                         <PieChart data={selectedPost.data} platform={selectedPost.platform} />
                                     </Grid>
+                                    {selectedPost.data.fbUrl && (
+                                        <Grid item xs={12}>
+                                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                                <a
+                                                    href={selectedPost.data.fbUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    style={{
+                                                        color: '#1877F2',
+                                                        textDecoration: 'none',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        fontWeight: 600,
+                                                        fontSize: '14px',
+                                                    }}
+                                                >
+                                                    View on {selectedPost.platform === "instagram" ? "Instagram" : "Facebook"}&nbsp;
+                                                    <OpenInNewIcon style={{ fontSize: '16px' }} />
+                                                </a>
+                                            </div>
+                                        </Grid>
+                                    )}
                                 </Grid>
                             )
                         )}
@@ -1149,6 +1021,7 @@ const Analytics = () => {
             </div >
 
         </>
-    );
+    )
 };
+
 export default Analytics;

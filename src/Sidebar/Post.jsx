@@ -24,15 +24,12 @@ import InsertPhotoIcon from '@mui/icons-material/InsertPhoto';
 import { FaVideo } from "react-icons/fa";
 import { useDispatch, useSelector } from "react-redux";
 import { clearAiText, updateCaption } from "../Redux/action/AiTextSlice";
-import MicIcon from '@mui/icons-material/Mic';
-import StopIcon from '@mui/icons-material/Stop';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import QI from './QI';
 import TagIcon from '@mui/icons-material/Tag';
 import { useTranslation } from "react-i18next";
 import { Dialog, DialogContent, DialogContentText, DialogActions, Button, IconButton, Typography, DialogTitle } from '@mui/material';
 import WarningIcon from '@mui/icons-material/Warning';
-import SaveIcon from '@mui/icons-material/Save';
 import {
     ThumbUpAltOutlined,
     ChatBubbleOutline,
@@ -111,9 +108,6 @@ const Post = ({ onClose }) => {
     const [showInput, setShowInput] = useState(false);
     const { t } = useTranslation();
     const [isSessionExpired, setIsSessionExpired] = useState(false);
-
-
-    console.log(file);
 
     const decryptToken = (encryptedToken) => {
         try {
@@ -512,7 +506,7 @@ const Post = ({ onClose }) => {
         try {
             const loadingToasts = platforms.map(platform =>
                 toast.loading(`Posting to ${getDisplayPlatformName(platform)}...`)
-            )
+            );
             const responses = await Promise.all(platforms.map(async platform => {
                 const endpoint = getEndpointForPlatform(platform);
                 console.log(endpoint)
@@ -531,41 +525,6 @@ const Post = ({ onClose }) => {
                             response.data.forEach(async res => {
                                 if (res.status === "success" && res.platform === "facebook") {
                                     toast.success(res.message);
-                                    const postId = res.data.response.id;
-                                    var delay = 0;
-                                    console.log("before");
-                                    const contentType = res.data.mediaType;
-                                    console.log("content type : " + contentType);
-                                    if (contentType.startsWith('video')) {
-                                        console.log("video section");
-                                        const contentlength = res.data.mediaSize;
-                                        var sizeInMB = contentlength / (1024 * 1024);
-                                        sizeInMB = Math.round(sizeInMB * 10) / 10;
-                                        console.log("type " + contentlength);
-                                        console.log("mb " + sizeInMB);
-                                        delay = 40000;
-                                        if (sizeInMB <= 10) {
-                                            delay = 12000;
-                                        } else if (sizeInMB <= 20) {
-                                            delay = 15000;
-                                        } else if (sizeInMB <= 30) {
-                                            delay = 30000;
-                                        } else if (sizeInMB <= 40) {
-                                            delay = 40000;
-                                        }
-                                    } else if (contentType.startsWith('image')) {
-                                        console.log("image section");
-                                        delay = 5000;
-                                    }
-                                    setTimeout(async () => {
-                                        await axiosInstance.get(`/quantum-share/socialmedia/get/recent/post`, {
-                                            headers: {
-                                                'Accept': 'application/json',
-                                                Authorization: `Bearer ${token}`
-                                            },
-                                            params: { postId }
-                                        });
-                                    }, delay);
                                 } else if (res.status === "error" && res.code === 114) {
                                     console.error('Credit Depleted Error Message:', res.message);
                                     toast.info(res.message);
@@ -576,16 +535,6 @@ const Post = ({ onClose }) => {
                         if (response.data.success?.status === "success") {
                             const res = response.data.success;
                             toast.success(res.message);
-                            const postId = res.data.id;
-                            setTimeout(async () => {
-                                await axiosInstance.get(`/quantum-share/socialmedia/get/recent/post`, {
-                                    headers: {
-                                        'Accept': 'application/json',
-                                        Authorization: `Bearer ${token}`
-                                    },
-                                    params: { postId }
-                                });
-                            }, 5000);
                         } else if (response.data.code === 116) {
                             const res = response.data;
                             console.error('Unsupported Aspect Ratio:', res.message);
@@ -601,16 +550,6 @@ const Post = ({ onClose }) => {
                         if (response.data.success && response.data.success.message) {
                             const res = response.data.success;
                             toast.success(res.message);
-                            const postId = res.data.id;
-                            setTimeout(async () => {
-                                await axiosInstance.get(`/quantum-share/socialmedia/get/recent/post`, {
-                                    headers: {
-                                        'Accept': 'application/json',
-                                        Authorization: `Bearer ${token}`
-                                    },
-                                    params: { postId }
-                                });
-                            }, 10000);
                         } else if (response.data.structure?.status === "error" && response.data.structure.code === 114) {
                             const res = response.data.structure;
                             console.error('Credit Depleted Error Message:', res.message);
@@ -1518,7 +1457,7 @@ const Post = ({ onClose }) => {
                                 </div>
                             </div>
                         </Grid>
-                        <Grid item lg={5} md={5} xs={12} sx={{ border: 1, borderStyle: 'ridge', display: 'flex', flexDirection: 'column', p: 2, overflow: 'auto', height: '100%' }}>
+                        <Grid item lg={5} md={5} xs={12} sx={{ border: 1, borderStyle: 'ridge', display: 'flex', flexDirection: 'column' }}>
                             <div className="preview" style={{ padding: '8px' }}>
                                 <h4 id="newPost">Media Preview</h4>
                             </div>
@@ -1738,8 +1677,35 @@ const Post = ({ onClose }) => {
                                                         sx={{ width: '100%', height: 'auto' }}
                                                     />
                                                 )}
+                                                {/* <CardActions style={{ display: 'flex', justifyContent: 'space-around' }}>
+                                                    <IconButton sx={{ color: 'gray' }}>
+                                                        <ThumbUpAltOutlined />
+                                                        <Typography variant="caption" sx={{ ml: 0.5 }}>
+                                                            Like
+                                                        </Typography>
+                                                    </IconButton>
+                                                    <IconButton sx={{ color: 'gray' }}>
+                                                        <ThumbDownAltOutlined />
+                                                        <Typography variant="caption" sx={{ ml: 0.5 }}>
+                                                            Dislike
+                                                        </Typography>
+                                                    </IconButton>
+                                                    <IconButton sx={{ color: 'gray' }}>
+                                                        <ChatBubbleOutline />
+                                                        <Typography variant="caption" sx={{ ml: 0.5 }}>
+                                                            Comment
+                                                        </Typography>
+                                                    </IconButton>
+                                                    <IconButton sx={{ color: 'gray' }}>
+                                                        <ShareTwoTone />
+                                                        <Typography variant="caption" sx={{ ml: 0.5 }}>
+                                                            Share
+                                                        </Typography>
+                                                    </IconButton>
+                                                </CardActions> */}
                                             </>
                                         )}
+
                                         {mediaPlatforms === 'Reddit' && (
                                             <>
                                                 <CardContent>
@@ -1864,15 +1830,6 @@ const Post = ({ onClose }) => {
                     </Grid>
                 </DialogContent>
                 <DialogActions className="action">
-                    <Button
-                        variant="outlined"
-                        startIcon={<SaveIcon />}
-                        color="error"
-                        onClick={handleSaveDraft}
-                        disabled={draftloading}
-                    >
-                        {draftloading ? <CircularProgress size={20} color="inherit" /> : 'save'}
-                    </Button>
                     <div style={{ display: 'flex' }}>
                         {warningMessages.length > 0 && (
                             <div style={{ display: 'flex' }}>

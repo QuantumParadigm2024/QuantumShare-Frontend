@@ -96,8 +96,8 @@ const FacebookLogin = () => {
             } else {
                 window.fbAsyncInit = function () {
                     FB.init({
-                        appId: '421449853704517',
-                        // appId: '1397130744461736',
+                        // appId: '421449853704517',
+                        appId: '1397130744461736',
                         cookie: true,
                         xfbml: true,
                         version: 'v19.0'
@@ -132,7 +132,7 @@ const FacebookLogin = () => {
                         console.log('User canceled login or didn\'t authorize the app');
                         setLoading(false);
                     }
-                }, { scope: 'pages_show_list,pages_read_engagement,pages_manage_posts,business_management,read_insights' });
+                }, { scope: 'pages_show_list,pages_read_engagement,pages_manage_posts,business_management,read_insights,' });
             })
             .catch(error => {
                 console.error('Error loading Instagram SDK:', error);

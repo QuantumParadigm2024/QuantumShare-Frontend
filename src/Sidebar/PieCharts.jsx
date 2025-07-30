@@ -86,7 +86,11 @@ const PieCharts = ({ data, platform }) => {
     return (
         <>
             <h3 style={{ color: '#ba343b' }}>Graphical Representation</h3>
+<<<<<<< HEAD
             <div style={{ height: '200px' }}>
+=======
+            <div style={{ height: '200px', marginTop: '15px' }}>
+>>>>>>> bab746e1110d03f929967e81e62c0e31889bf625
                 <Pie
                     data={chartData}
                     options={{
